@@ -26,6 +26,7 @@ source ./.venv/bin/activate
 Lastly, install required packages:
 ```sh
 pip install -r requirements.txt
+# WARNING/NOTE for WINDOWS: Defender is NOT happy with the impacket install due to examples in the pip package. Disable temporarily or add exception.
 ```
 ### Usage
 ```
