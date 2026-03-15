@@ -75,7 +75,6 @@ temp.*
 # Environment / Secrets
 ########################
 .env
-.env.*
 
 ########################
 # Archives
