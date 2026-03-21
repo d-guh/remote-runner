@@ -13,5 +13,3 @@ Write-Host "Extracting Sysinternals..."
 Expand-Archive -Path "$installPath.zip" -DestinationPath $installPath
 
 Write-Host "Sysinternals installed to $installPath"
-
-Install-Sysinternals
