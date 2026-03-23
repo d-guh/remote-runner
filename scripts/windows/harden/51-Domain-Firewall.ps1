@@ -15,16 +15,17 @@ $isDC = $DomainRole -in 4, 5
 $isDM = $DomainRole -in 1, 3
 $isDomain = $isDC -or $isDM
 
+# TODO: There may be an option built into the FW for this
 $RPC_High_Ports = "49152-65535"
 
 $AD_Services = @(
-    @{ Name="AD-DNS"; Port=53; Proto=@("TCP", "UDP") },
+    @{ Name="AD-DNS"; Port=53; Proto="UDP" },
     @{ Name="AD-Kerberos"; Port=88; Proto=@("TCP", "UDP") },
     @{ Name="AD-Web"; Port=@(80, 443); Proto="TCP" },
     @{ Name="AD-RPC-EPM"; Port=135; Proto=@("TCP", "UDP") },
     @{ Name="AD-LDAP"; Port=@(389, 636); Proto=@("TCP", "UDP") },
     @{ Name="AD-GC"; Port=@(3268, 3269); Proto=@("TCP", "UDP") },
-    @{ Name="AD-SMB"; Port=445; Proto=@("TCP", "UDP") },
+    @{ Name="AD-SMB"; Port=445; Proto="TCP" },
     @{ Name="AD-Kpwd"; Port=464; Proto=@("TCP", "UDP") },
     @{ Name="AD-NTP"; Port=123; Proto="UDP" },
     @{ Name="AD-Ephemeral-RPC"; Port=$RPC_High_Ports; Proto="TCP" }
