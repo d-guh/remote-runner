@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import winrm
+from .constants import SH_PATH, PS_PATH
 from fabric import Connection, Config
 from paramiko.ssh_exception import AuthenticationException
 from impacket.smbconnection import SMBConnection
@@ -12,7 +13,6 @@ from impacket.dcerpc.v5 import transport, scmr
 
 def run_ssh(args, username: str, password: str) -> None:
     ip = args.ip
-    target = args.target
     logging.info("Attempting SSH connection to %s...", ip)
 
     connect_kwargs = {
@@ -57,6 +57,10 @@ def run_ssh(args, username: str, password: str) -> None:
 
             # OS Detection
             try:
+                res_win = c.run("cmd.exe /c echo %OS%", hide=True, warn=True, timeout=5)
+                if res_win.ok and "Windows" in res_win.stdout:
+                    is_windows, win_ver_str = True, res_win.stdout.strip()
+
                 res_win = c.run("cmd.exe /c ver", hide=True, warn=True, timeout=5)
                 if res_win.ok and "Windows" in res_win.stdout:
                     is_windows, win_ver_str = True, res_win.stdout.strip()
@@ -64,6 +68,10 @@ def run_ssh(args, username: str, password: str) -> None:
                 pass
 
             try:
+                res_lin = c.run("[ -d / ] && echo 'unix'", hide=True, timeout=5)
+                if res_lin.ok and "unix" in res_lin.stdout:
+                    is_linux, lin_ver_str = True, res_lin.stdout.strip()
+
                 res_lin = c.run("uname -a", hide=True, warn=True, timeout=5)
                 if res_lin.ok:
                     is_linux, lin_ver_str = True, res_lin.stdout.strip()
@@ -73,59 +81,90 @@ def run_ssh(args, username: str, password: str) -> None:
             # OS Logic
             if is_windows and not is_linux:
                 logging.info("Remote system confirmed as Windows; Version: %s", win_ver_str)
+                execute_windows_ssh(c, args, password)
             elif is_linux and not is_windows:
                 logging.info("Remote system confirmed as Linux; Version: %s", lin_ver_str)
+                execute_linux_ssh(c, args, password)
             else:
                 msg = "Franken-OS" if is_windows and is_linux else "Indeterminate OS (no response or failed auth)"
                 logging.warning(f"{msg}! Windows: {win_ver_str} | Linux: {lin_ver_str}")
                 choice = input("Select OS to target [linux/windows] (default linux): ").lower().strip()
                 is_windows = (choice == "windows")
                 is_linux = not is_windows
-
-            # Path Setup
-            os_folder = "windows" if is_windows else "linux"
-            local_target_dir = os.path.join("scripts", os_folder, target)
-            if not os.path.exists(local_target_dir):
-                logging.error("Local target directory not found: %s", local_target_dir)
-                return
-
-            for filename in sorted(os.listdir(local_target_dir)):
-                local_path = os.path.join(local_target_dir, filename)
-
-                if filename.startswith("."):
-                    continue
-
-                with open(local_path, 'r') as f:
-                    script_content = f.read()
-
-                exec_res = None
-
-                if is_windows and filename.endswith(".ps1"):
-                    logging.info("Executing %s script via powershell...", filename)
-                    encoded_script = base64.b64encode(script_content.encode('utf-16-le')).decode('ascii')
-                    PS_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
-                    cmd = f"{PS_PATH} -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded_script}"
-                    exec_res = c.run(cmd, hide=True, warn=True)
-                elif is_linux and filename.endswith(".sh"):
-                    logging.info("Executing %s via sh...", filename)
-                    escaped_content = script_content.replace("'", "'\\''")
-                    cmd = f"printf '%s\\n' '{password}' | /usr/bin/sudo -S /bin/sh -c '{escaped_content}'"  # May need modified if they mess with env vars like PATH
-                    exec_res = c.run(cmd, hide=True, warn=True)
-
-                if exec_res is not None:
-                    if exec_res.ok:
-                        logging.success("Script %s Output:\n%s", filename, exec_res.stdout.strip())
-                    else:
-                        logging.error("Script %s failed (Code %s)", filename, exec_res.exited)
-                        if exec_res.stderr:
-                            logging.error("STDERR: %s", exec_res.stderr.strip())
-
-                    logging.debug("Result stdout: %s", exec_res.stdout.strip())
-                    logging.debug("Result stderr: %s", exec_res.stderr.strip())
+                execute_windows_ssh(c, args, password) if is_windows else execute_linux_ssh(c, args, password)
 
     except Exception as e:
         logging.error("SSH Execution failed: %s", e)
         raise e
+
+def execute_linux_ssh(connection, args, password: str) -> None:
+    local_target_dir = os.path.join("scripts", "linux", args.target)
+    if not os.path.exists(local_target_dir):
+        logging.error("Local target directory not found: %s", local_target_dir)
+        return
+
+    for filename in sorted(os.listdir(local_target_dir)):
+        local_path = os.path.join(local_target_dir, filename)
+
+        if filename.startswith("."):
+            continue
+
+        with open(local_path, 'r') as f:
+            script_content = f.read()
+
+        exec_res = None
+
+        if filename.endswith(".sh"):
+            logging.info("Executing %s via sh...", filename)
+            escaped_content = script_content.replace("'", "'\\''")
+            cmd = f"printf '%s\\n' '{password}' | /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/bin/sudo -S {SH_PATH} -c '{escaped_content}'"
+            exec_res = connection.run(cmd, hide=True, warn=True)
+
+        if exec_res is not None:
+            if exec_res.ok:
+                logging.success("Script %s Output:\n%s", filename, exec_res.stdout.strip())
+            else:
+                logging.error("Script %s failed (Code %s)", filename, exec_res.exited)
+                if exec_res.stderr:
+                    logging.error("STDERR: %s", exec_res.stderr.strip())
+
+            logging.debug("Result stdout: %s", exec_res.stdout.strip())
+            logging.debug("Result stderr: %s", exec_res.stderr.strip())
+
+def execute_windows_ssh(connection, args, password: str) -> None:
+    local_target_dir = os.path.join("scripts", "windows", args.target)
+    if not os.path.exists(local_target_dir):
+        logging.error("Local target directory not found: %s", local_target_dir)
+        return
+
+    for filename in sorted(os.listdir(local_target_dir)):
+        local_path = os.path.join(local_target_dir, filename)
+
+        if filename.startswith("."):
+            continue
+
+        with open(local_path, 'r') as f:
+            script_content = f.read()
+
+        exec_res = None
+
+        if filename.endswith(".ps1"):
+            logging.info("Executing %s script via powershell...", filename)
+            encoded_script = base64.b64encode(script_content.encode('utf-16-le')).decode('ascii')
+            cmd = f"{PS_PATH} -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded_script}"
+            exec_res = connection.run(cmd, hide=True, warn=True)
+
+        if exec_res is not None:
+            if exec_res.ok:
+                logging.success("Script %s Output:\n%s", filename, exec_res.stdout.strip())
+            else:
+                logging.error("Script %s failed (Code %s)", filename, exec_res.exited)
+                if exec_res.stderr:
+                    logging.error("STDERR: %s", exec_res.stderr.strip())
+
+            logging.debug("Result stdout: %s", exec_res.stdout.strip())
+            logging.debug("Result stderr: %s", exec_res.stderr.strip())
+
 
 def run_winrm(args, username: str, password: str) -> None:
     ip = args.ip
@@ -171,7 +210,6 @@ def run_winrm(args, username: str, password: str) -> None:
 
     try:
         res_ver_cmd = session.run_cmd("ver")
-        PS_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
         res_ver_ps = session.run_cmd(f"{PS_PATH} -NoProfile -NonInteractive -ExecutionPolicy Bypass '(Get-CimInstance Win32_OperatingSystem).Caption'")
         if res_ver_ps.status_code == 0:
             logging.info("Windows Version: %s", res_ver_ps.std_out.decode().strip())
@@ -191,7 +229,6 @@ def run_winrm(args, username: str, password: str) -> None:
                 with open(local_path, 'r') as f:
                     script_content = f.read()
 
-                PS_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
                 encoded_script = base64.b64encode(script_content.encode('utf-16-le')).decode('ascii')
                 result = session.run_cmd(f"{PS_PATH} -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded_script}")
 
