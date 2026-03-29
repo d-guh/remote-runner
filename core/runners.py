@@ -103,12 +103,13 @@ def run_ssh(args, username: str, password: str) -> None:
                 if is_windows and filename.endswith(".ps1"):
                     logging.info("Executing %s script via powershell...", filename)
                     encoded_script = base64.b64encode(script_content.encode('utf-16-le')).decode('ascii')
-                    cmd = f"powershell.exe -ExecutionPolicy Bypass -EncodedCommand {encoded_script}"
+                    PS_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+                    cmd = f"{PS_PATH} -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded_script}"
                     exec_res = c.run(cmd, hide=True, warn=True)
                 elif is_linux and filename.endswith(".sh"):
                     logging.info("Executing %s via sh...", filename)
                     escaped_content = script_content.replace("'", "'\\''")
-                    cmd = f"printf '%s\\n' '{password}' | sudo -S sh -c '{escaped_content}'"
+                    cmd = f"printf '%s\\n' '{password}' | /usr/bin/sudo -S /bin/bash --noprofile --norc -c 'env -i {escaped_content}'"
                     exec_res = c.run(cmd, hide=True, warn=True)
 
                 if exec_res is not None:
@@ -232,7 +233,7 @@ def run_smb(args, username: str, password: str) -> None:
                     smb.putFile(remote_share, remote_name, f.read)
                 
                 full_remote_path = f"C:\\Windows\\{remote_name}"
-                cmd = f'cmd.exe /c powershell.exe -ExecutionPolicy Bypass -File "{full_remote_path}"'
+                cmd = f'cmd.exe /c powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{full_remote_path}"'
 
                 logging.info("Executing %s via SCM...", remote_name)
                 execute_remote_command(ip, username, password, cmd)
