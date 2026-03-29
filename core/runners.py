@@ -109,7 +109,7 @@ def run_ssh(args, username: str, password: str) -> None:
                 elif is_linux and filename.endswith(".sh"):
                     logging.info("Executing %s via sh...", filename)
                     escaped_content = script_content.replace("'", "'\\''")
-                    cmd = f"printf '%s\\n' '{password}' | /usr/bin/sudo -S /bin/bash --noprofile --norc -c 'env -i {escaped_content}'"
+                    cmd = f"printf '%s\\n' '{password}' | /usr/bin/sudo -S /bin/sh -c '{escaped_content}'"  # May need modified if they mess with env vars like PATH
                     exec_res = c.run(cmd, hide=True, warn=True)
 
                 if exec_res is not None:
@@ -155,7 +155,7 @@ def run_winrm(args, username: str, password: str) -> None:
                 operation_timeout_sec=5
             )
 
-            whoami = s.run_ps("whoami")
+            whoami = s.run_cmd("whoami")
             if whoami.status_code == 0:
                 logging.success("Logged in as %s", whoami.std_out.decode().strip())
                 logging.success("Connected via %s (%s)", endpoint, auth_type)
@@ -171,7 +171,8 @@ def run_winrm(args, username: str, password: str) -> None:
 
     try:
         res_ver_cmd = session.run_cmd("ver")
-        res_ver_ps = session.run_ps("(Get-CimInstance Win32_OperatingSystem).Caption")
+        PS_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        res_ver_ps = session.run_cmd(f"{PS_PATH} -NoProfile -NonInteractive -ExecutionPolicy Bypass '(Get-CimInstance Win32_OperatingSystem).Caption'")
         if res_ver_ps.status_code == 0:
             logging.info("Windows Version: %s", res_ver_ps.std_out.decode().strip())
             if res_ver_cmd.status_code == 0:
@@ -188,9 +189,11 @@ def run_winrm(args, username: str, password: str) -> None:
                 logging.info("Executing %s via WinRM...", filename)
 
                 with open(local_path, 'r') as f:
-                    ps_script = f.read()
+                    script_content = f.read()
 
-                result = session.run_ps(ps_script)
+                PS_PATH = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+                encoded_script = base64.b64encode(script_content.encode('utf-16-le')).decode('ascii')
+                result = session.run_cmd(f"{PS_PATH} -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded_script}")
 
                 if result.status_code == 0:
                     logging.success("Script %s Output:\n%s", filename, result.std_out.decode().strip())
