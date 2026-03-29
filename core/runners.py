@@ -5,7 +5,7 @@ import logging
 import os
 import re
 import winrm
-from .constants import SH_PATH, PS_PATH
+from .constants import SH_PATH, CMD_PATH, PS_PATH
 from fabric import Connection, Config
 from paramiko.ssh_exception import AuthenticationException
 from impacket.smbconnection import SMBConnection
@@ -57,11 +57,11 @@ def run_ssh(args, username: str, password: str) -> None:
 
             # OS Detection
             try:
-                res_win = c.run("cmd.exe /c echo %OS%", hide=True, warn=True, timeout=5)
+                res_win = c.run(f"{CMD_PATH} /c echo %OS%", hide=True, warn=True, timeout=5)
                 if res_win.ok and "Windows" in res_win.stdout:
                     is_windows, win_ver_str = True, res_win.stdout.strip()
 
-                res_win = c.run("cmd.exe /c ver", hide=True, warn=True, timeout=5)
+                res_win = c.run(f"{CMD_PATH} /c ver", hide=True, warn=True, timeout=5)
                 if res_win.ok and "Windows" in res_win.stdout:
                     is_windows, win_ver_str = True, res_win.stdout.strip()
             except Exception:
@@ -273,7 +273,7 @@ def run_smb(args, username: str, password: str) -> None:
                     smb.putFile(remote_share, remote_name, f.read)
                 
                 full_remote_path = f"C:\\Windows\\{remote_name}"
-                cmd = f'cmd.exe /c powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{full_remote_path}"'
+                cmd = f'{CMD_PATH} /c {PS_PATH} -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{full_remote_path}"'
 
                 logging.info("Executing %s via SCM...", remote_name)
                 execute_remote_command(ip, username, password, cmd)
